@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -402,17 +401,11 @@
                 </div>
             </div>
             
-            <!-- Control de Tempo -->
+            <!-- Tempo Fijo -->
             <div class="section">
                 <div class="section-title">
-                    ⏱️ Tempo
+                    ⏱️ Tempo: 60 BPM (Fijo)
                 </div>
-                <div class="tempo-control">
-                    <span>Lento</span>
-                    <input type="range" class="tempo-slider" min="40" max="200" value="120" id="tempoSlider">
-                    <span>Rápido</span>
-                </div>
-                <div class="tempo-value" id="tempoValue">120 BPM</div>
             </div>
             
             <!-- Botón Generar -->
@@ -439,7 +432,7 @@
             constructor() {
                 this.selectedTimeSignature = '4/4';
                 this.selectedCells = [];
-                this.tempo = 120;
+                this.tempo = 60;
                 this.currentRhythm = null;
                 this.difficulty = 'basico';
                 
@@ -447,7 +440,7 @@
                 this.todasLasFiguras = {
                     // Figuras básicas
                     'redonda': { nombre: 'Redonda', valor: 8, simbolo: '𝅝', silencio: '𝄻', nivel: 'basico' },
-                    'blanca': { nombre: 'Blanca', valor: 4, simbolo: '♪', silencio: '𝄼', nivel: 'basico' },
+                    'blanca': { nombre: 'Blanca', valor: 4, simbolo: '𝅗𝅥', silencio: '𝄼', nivel: 'basico' },
                     'negra': { nombre: 'Negra', valor: 2, simbolo: '♩', silencio: '𝄽', nivel: 'basico' },
                     'corchea': { nombre: 'Corchea', valor: 1, simbolo: '♫', silencio: '𝄾', nivel: 'basico' },
                     
@@ -458,13 +451,13 @@
                     
                     // Puntillos
                     'negra-puntillo': { nombre: 'Negra con puntillo', valor: 3, simbolo: '♩.', silencio: '𝄽.', nivel: 'intermedio' },
-                    'blanca-puntillo': { nombre: 'Blanca con puntillo', valor: 6, simbolo: '♪.', silencio: '𝄼.', nivel: 'intermedio' },
+                    'blanca-puntillo': { nombre: 'Blanca con puntillo', valor: 6, simbolo: '𝅗𝅥.', silencio: '𝄼.', nivel: 'intermedio' },
                     'corchea-puntillo': { nombre: 'Corchea con puntillo', valor: 1.5, simbolo: '♫.', silencio: '𝄾.', nivel: 'intermedio' },
                     'semicorchea-puntillo': { nombre: 'Semicorchea con puntillo', valor: 0.75, simbolo: '♬.', silencio: '𝄿.', nivel: 'avanzado' },
                     
                     // Doble puntillo
                     'negra-doble-puntillo': { nombre: 'Negra doble puntillo', valor: 3.5, simbolo: '♩..', silencio: '𝄽..', nivel: 'avanzado' },
-                    'blanca-doble-puntillo': { nombre: 'Blanca doble puntillo', valor: 7, simbolo: '♪..', silencio: '𝄼..', nivel: 'avanzado' },
+                    'blanca-doble-puntillo': { nombre: 'Blanca doble puntillo', valor: 7, simbolo: '𝅗𝅥..', silencio: '𝄼..', nivel: 'avanzado' },
                     
                     // Tresillos
                     'tresillo-negras': { nombre: 'Tresillo de negras', valor: 2.67, simbolo: '♩♩♩', silencio: '𝄽𝄽𝄽', nivel: 'intermedio' },
@@ -493,7 +486,16 @@
                     
                     // Figuras de jazz
                     'swing-corcheas': { nombre: 'Swing de corcheas', valor: 2, simbolo: '♫♫', silencio: '𝄾𝄾', nivel: 'avanzado' },
-                    'shuffle': { nombre: 'Shuffle', valor: 2, simbolo: '♫.♬', silencio: '𝄾.𝄿', nivel: 'avanzado' }
+                    'shuffle': { nombre: 'Shuffle', valor: 2, simbolo: '♫.♬', silencio: '𝄾.𝄿', nivel: 'avanzado' },
+                    
+                    // Combinaciones prácticas adicionales
+                    'cuatro-semicorcheas': { nombre: '4 semicorcheas', valor: 2, simbolo: '♬♬♬♬', silencio: '𝄿𝄿𝄿𝄿', nivel: 'intermedio' },
+                    'dos-corcheas': { nombre: '2 corcheas', valor: 2, simbolo: '♫♫', silencio: '𝄾𝄾', nivel: 'basico' },
+                    'negra-corchea': { nombre: 'Negra + corchea', valor: 3, simbolo: '♩♫', silencio: '𝄽𝄾', nivel: 'intermedio' },
+                    'corchea-negra': { nombre: 'Corchea + negra', valor: 3, simbolo: '♫♩', silencio: '𝄾𝄽', nivel: 'intermedio' },
+                    'blanca-corchea': { nombre: 'Blanca + corchea', valor: 5, simbolo: '𝅗𝅥♫', silencio: '𝄼𝄾', nivel: 'intermedio' },
+                    'tres-corcheas': { nombre: '3 corcheas', valor: 3, simbolo: '♫♫♫', silencio: '𝄾𝄾𝄾', nivel: 'basico' },
+                    'anacrusa-corchea': { nombre: 'Anacrusa de corchea', valor: 1, simbolo: '♫', silencio: '𝄾', nivel: 'intermedio' }
                 };
                 
                 // Conversión del compás a número de corcheas
@@ -531,11 +533,7 @@
                     });
                 });
                 
-                // Control de tempo
-                document.getElementById('tempoSlider').addEventListener('input', (e) => {
-                    this.tempo = parseInt(e.target.value);
-                    document.getElementById('tempoValue').textContent = `${this.tempo} BPM`;
-                });
+                // Tempo fijo en 60 BPM
                 
                 // Botón generar
                 document.getElementById('generateBtn').addEventListener('click', () => {
@@ -592,92 +590,134 @@
             generateRhythm() {
                 if (this.selectedCells.length === 0) return;
                 
-                const corcheasTotales = this.corcheasPorCompas[this.selectedTimeSignature];
-                let restantes = corcheasTotales;
+                const corcheasPorCompas = this.corcheasPorCompas[this.selectedTimeSignature];
+                const numeroCompases = 4; // Generar 4 compases
                 const patronGenerado = [];
                 
-                // Generar patrón hasta completar el compás
-                while (restantes > 0) {
-                    const randomCell = this.selectedCells[Math.floor(Math.random() * this.selectedCells.length)];
-                    const figura = this.todasLasFiguras[randomCell];
+                // Generar 4 compases
+                for (let compas = 0; compas < numeroCompases; compas++) {
+                    let restantes = corcheasPorCompas;
+                    const patronCompas = [];
+                
+                    // Generar patrón hasta completar el compás EXACTAMENTE
+                    let ultimoEsSilencio = false;
                     
-                    if (figura.valor <= restantes) {
-                        // Probabilidad de silencio basada en dificultad
-                        const probabilidadSilencio = this.difficulty === 'basico' ? 0.15 : 
-                                                   this.difficulty === 'intermedio' ? 0.20 : 0.25;
-                        const esSilencio = Math.random() < probabilidadSilencio;
-                        
-                        if (esSilencio) {
-                            patronGenerado.push({
-                                simbolo: figura.silencio,
-                                nombre: `Silencio de ${figura.nombre.toLowerCase()}`,
-                                valor: figura.valor
-                            });
-                        } else {
-                            patronGenerado.push({
-                                simbolo: figura.simbolo,
-                                nombre: figura.nombre,
-                                valor: figura.valor
-                            });
-                        }
-                        
-                        restantes -= figura.valor;
-                    } else {
-                        // Buscar figura más pequeña que quepa
-                        const figurasDisponibles = this.selectedCells
+                    while (restantes > 0) {
+                        // Filtrar solo figuras que caben exactamente o que permiten completar el compás
+                        const figurasQueCaben = this.selectedCells
                             .map(cell => this.todasLasFiguras[cell])
-                            .filter(fig => fig.valor <= restantes)
-                            .sort((a, b) => b.valor - a.valor); // Ordenar por valor descendente
+                            .filter(fig => fig.valor <= restantes);
                         
-                        if (figurasDisponibles.length > 0) {
-                            const figuraChica = figurasDisponibles[0]; // Tomar la más grande que quepa
-                            const esSilencio = Math.random() < 0.2;
-                            
-                            if (esSilencio) {
-                                patronGenerado.push({
-                                    simbolo: figuraChica.silencio,
-                                    nombre: `Silencio de ${figuraChica.nombre.toLowerCase()}`,
-                                    valor: figuraChica.valor
-                                });
-                            } else {
-                                patronGenerado.push({
-                                    simbolo: figuraChica.simbolo,
-                                    nombre: figuraChica.nombre,
-                                    valor: figuraChica.valor
-                                });
-                            }
-                            
-                            restantes -= figuraChica.valor;
-                        } else {
-                            // Completar con silencios de corchea
-                            while (restantes >= 1) {
-                                patronGenerado.push({
-                                    simbolo: '𝄾',
-                                    nombre: 'Silencio de corchea',
+                        if (figurasQueCaben.length === 0) {
+                            // Si no hay figuras que caben, completar con la más pequeña disponible
+                            if (restantes >= 1) {
+                                patronCompas.push({
+                                    simbolo: '♫',
+                                    nombre: 'Corchea',
                                     valor: 1
                                 });
                                 restantes -= 1;
-                            }
-                            
-                            // Si queda menos de una corchea, completar con semicorcheas
-                            while (restantes > 0) {
-                                patronGenerado.push({
-                                    simbolo: '𝄿',
-                                    nombre: 'Silencio de semicorchea',
+                            } else if (restantes >= 0.5) {
+                                patronCompas.push({
+                                    simbolo: '♬',
+                                    nombre: 'Semicorchea',
                                     valor: 0.5
                                 });
                                 restantes -= 0.5;
+                            } else {
+                                // Ajustar cualquier resto decimal
+                                restantes = 0;
+                            }
+                            continue;
+                        }
+                        
+                        // Elegir una figura aleatoria de las que caben
+                        const figuraElegida = figurasQueCaben[Math.floor(Math.random() * figurasQueCaben.length)];
+                        
+                        // Verificar que el valor sea exacto (sin decimales problemáticos)
+                        const valorExacto = Math.round(figuraElegida.valor * 2) / 2; // Redondear a medios
+                        
+                        if (valorExacto <= restantes) {
+                            // Probabilidad de silencio muy reducida y evitar silencios consecutivos
+                            const probabilidadSilencio = ultimoEsSilencio ? 0 : 
+                                                       (this.difficulty === 'basico' ? 0.02 : 
+                                                        this.difficulty === 'intermedio' ? 0.05 : 0.08);
+                            const esSilencio = Math.random() < probabilidadSilencio;
+                            
+                            if (esSilencio && !ultimoEsSilencio) {
+                                patronCompas.push({
+                                    simbolo: figuraElegida.silencio,
+                                    nombre: `Silencio de ${figuraElegida.nombre.toLowerCase()}`,
+                                    valor: valorExacto
+                                });
+                                ultimoEsSilencio = true;
+                            } else {
+                                patronCompas.push({
+                                    simbolo: figuraElegida.simbolo,
+                                    nombre: figuraElegida.nombre,
+                                    valor: valorExacto
+                                });
+                                ultimoEsSilencio = false;
+                            }
+                            
+                            restantes -= valorExacto;
+                            
+                            // Redondear restantes para evitar problemas de punto flotante
+                            restantes = Math.round(restantes * 2) / 2;
+                        } else {
+                            // Si por alguna razón no cabe, completar con corcheas
+                            if (restantes >= 1) {
+                                patronCompas.push({
+                                    simbolo: '♫',
+                                    nombre: 'Corchea',
+                                    valor: 1
+                                });
+                                restantes -= 1;
+                            } else if (restantes >= 0.5) {
+                                patronCompas.push({
+                                    simbolo: '♬',
+                                    nombre: 'Semicorchea',
+                                    valor: 0.5
+                                });
+                                restantes -= 0.5;
+                            } else {
+                                restantes = 0;
                             }
                         }
                     }
+                    
+                    // Verificar que el compás suma exactamente lo correcto
+                    const sumaCompas = patronCompas.reduce((sum, item) => sum + item.valor, 0);
+                    if (Math.abs(sumaCompas - corcheasPorCompas) > 0.01) {
+                        console.warn(`Compás ${compas + 1}: suma ${sumaCompas}, esperado ${corcheasPorCompas}`);
+                    }
+                    
+                    // Agregar separador de compás
+                    patronCompas.push({
+                        simbolo: '|',
+                        nombre: 'Barra de compás',
+                        valor: 0,
+                        esBarraCompas: true
+                    });
+                    
+                    patronGenerado.push(...patronCompas);
                 }
+                
+                // Agregar doble barra final
+                patronGenerado[patronGenerado.length - 1] = {
+                    simbolo: '||',
+                    nombre: 'Doble barra final',
+                    valor: 0,
+                    esBarraFinal: true
+                };
                 
                 this.currentRhythm = {
                     pattern: patronGenerado,
                     timeSignature: this.selectedTimeSignature,
                     tempo: this.tempo,
                     cells: [...this.selectedCells],
-                    corcheasTotales: corcheasTotales,
+                    corcheasPorCompas: corcheasPorCompas,
+                    numeroCompases: numeroCompases,
                     difficulty: this.difficulty
                 };
                 
@@ -692,31 +732,34 @@
                 resultArea.classList.add('has-content');
                 
                 const simbolos = this.currentRhythm.pattern.map(item => item.simbolo).join(' ');
-                const detallesList = this.currentRhythm.pattern.map((item, index) => 
-                    `<div class="rhythm-item">
-                        <span class="item-number">${index + 1}.</span>
-                        <span class="item-symbol">${item.simbolo}</span>
-                        <span class="item-name">${item.nombre}</span>
-                        <span class="item-value">(${item.valor} corcheas)</span>
-                    </div>`
-                ).join('');
+                const detallesList = this.currentRhythm.pattern
+                    .filter(item => !item.esBarraCompas && !item.esBarraFinal)
+                    .map((item, index) => 
+                        `<div class="rhythm-item">
+                            <span class="item-number">${index + 1}.</span>
+                            <span class="item-symbol">${item.simbolo}</span>
+                            <span class="item-name">${item.nombre}</span>
+                            <span class="item-value">(${item.valor} corcheas)</span>
+                        </div>`
+                    ).join('');
                 
                 const difficultyEmoji = this.currentRhythm.difficulty === 'basico' ? '🟢' : 
                                       this.currentRhythm.difficulty === 'intermedio' ? '🟡' : '🔴';
                 
                 resultArea.innerHTML = `
-                    <div class="rhythm-display">
+                    <div class="rhythm-display" id="rhythmDisplay" style="display: none;">
                         ${simbolos}
                     </div>
                     <div class="rhythm-info">
-                        ${difficultyEmoji} ${this.currentRhythm.difficulty.toUpperCase()} • Compás: ${this.currentRhythm.timeSignature} • Tempo: ${this.currentRhythm.tempo} BPM • Total: ${this.currentRhythm.corcheasTotales} corcheas
+                        ${difficultyEmoji} ${this.currentRhythm.difficulty.toUpperCase()} • Compás: ${this.currentRhythm.timeSignature} • Tempo: ${this.currentRhythm.tempo} BPM • ${this.currentRhythm.numeroCompases} compases
                     </div>
-                    <div class="rhythm-details">
+                    <div class="rhythm-details" id="rhythmDetails" style="display: none;">
                         ${detallesList}
                     </div>
                     <div class="control-buttons">
                         <button class="control-btn" onclick="rhythmTrainer.generateRhythm()">🔄 Nuevo</button>
                         <button class="control-btn" onclick="rhythmTrainer.playRhythm()">▶️ Reproducir</button>
+                        <button class="control-btn" onclick="rhythmTrainer.repeatRhythm()">🔁 Repetir</button>
                         <button class="control-btn" onclick="rhythmTrainer.showSolution()">💡 Solución</button>
                         <button class="control-btn" onclick="rhythmTrainer.exportPattern()">📋 Exportar</button>
                     </div>
@@ -736,25 +779,43 @@
                 }, 2500);
             }
             
+            repeatRhythm() {
+                const rhythmDisplay = document.querySelector('.rhythm-display');
+                const originalText = rhythmDisplay.textContent;
+                
+                rhythmDisplay.style.color = '#10b981';
+                rhythmDisplay.textContent = '🔁 Repitiendo dictado...';
+                
+                setTimeout(() => {
+                    rhythmDisplay.style.color = '#2d3748';
+                    rhythmDisplay.textContent = originalText;
+                }, 3000);
+            }
+            
             showSolution() {
                 if (!this.currentRhythm) return;
                 
-                const patronTexto = this.currentRhythm.pattern.map(item => item.nombre).join(' → ');
-                const totalCorcheas = this.currentRhythm.pattern.reduce((sum, item) => sum + item.valor, 0);
-                const difficultyText = this.currentRhythm.difficulty === 'basico' ? 'Básico 🟢' : 
-                                     this.currentRhythm.difficulty === 'intermedio' ? 'Intermedio 🟡' : 'Avanzado 🔴';
+                const rhythmDisplay = document.getElementById('rhythmDisplay');
+                const rhythmDetails = document.getElementById('rhythmDetails');
+                const solutionBtn = document.querySelector('.control-btn[onclick="rhythmTrainer.showSolution()"]');
                 
-                alert(`📋 Solución del Dictado Rítmico:
-
-🎯 Nivel: ${difficultyText}
-🎼 Compás: ${this.currentRhythm.timeSignature}
-⏱️ Tempo: ${this.currentRhythm.tempo} BPM
-📊 Total de corcheas: ${totalCorcheas}
-
-🎵 Secuencia completa:
-${patronTexto}
-
-💡 Tip: Practica cada figura por separado antes de intentar el patrón completo. ¡La precisión rítmica es clave!`);
+                if (rhythmDisplay.style.display === 'none') {
+                    // Mostrar la solución completa
+                    rhythmDisplay.style.display = 'block';
+                    rhythmDetails.style.display = 'block';
+                    solutionBtn.innerHTML = '🙈 Ocultar Solución';
+                    solutionBtn.style.background = '#10b981';
+                    solutionBtn.style.color = 'white';
+                    solutionBtn.style.borderColor = '#10b981';
+                } else {
+                    // Ocultar la solución completa
+                    rhythmDisplay.style.display = 'none';
+                    rhythmDetails.style.display = 'none';
+                    solutionBtn.innerHTML = '💡 Solución';
+                    solutionBtn.style.background = 'white';
+                    solutionBtn.style.color = '#4facfe';
+                    solutionBtn.style.borderColor = '#4facfe';
+                }
             }
             
             exportPattern() {
@@ -804,5 +865,5 @@ Generado con Dictados Rítmicos Pro`;
         // Inicializar la aplicación
         const rhythmTrainer = new AdvancedRhythmTrainer();
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'96f2eee0c577dea9',t:'MTc1NTIwMDUyMi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'96f9a2e666d1dea9',t:'MTc1NTI3MDgxMC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
