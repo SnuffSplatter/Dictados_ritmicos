@@ -1,0 +1,639 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+// --- Librerías de notación y audio ---
+// Todas las librerías NPM están disponibles en este entorno de vista previa.
+// VexFlow: render de notación; Tone.js: audio sencillo para metrónomo y golpes.
+import { Factory, EasyScore, System, Voice, Formatter } from "vexflow";
+import * as Tone from "tone";
+
+// --- Utilidades de ritmo ---
+// Representamos las figuras como fracciones de redonda (1.0 = redonda).
+// Para compatibilidad con VexFlow, usamos duraciones estilo EasyScore: "w", "h", "q", "8", "16", sufijo "r" para silencio.
+
+const DURATION_MAP: Record<string, number> = {
+  w: 1.0, // whole
+  h: 0.5, // half
+  q: 0.25, // quarter
+  "8": 0.125, // eighth
+  "16": 0.0625, // sixteenth
+};
+
+// Para conteo (1 e & a), necesitamos subdivisión en semicorcheas como base.
+const SUBDIV_FRAC = DURATION_MAP["16"]; // 1/16 redonda
+
+type TimeSig = {
+  num: number;
+  den: 1 | 2 | 4 | 8 | 16;
+};
+
+type Settings = {
+  timeSig: TimeSig;
+  measures: number;
+  allowRests: boolean;
+  allowSyncopation: boolean;
+  allowTuplets: boolean;
+  allowedDurations: Array<keyof typeof DURATION_MAP>;
+  tempo: number; // BPM a la negra por defecto (relación con compás se explica abajo)
+  mode: "Lectura" | "Dictado" | "Desafío";
+};
+
+// Calcula la duración total de un compás en fracción de redonda.
+function barLen(timeSig: TimeSig): number {
+  // p.ej. 4/4 => (4 * (1/4 redonda)) = 4 * 0.25 = 1.0 redonda
+  return timeSig.num * (1 / timeSig.den);
+}
+
+// Aleatorio helper
+function randChoice<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// Intenta generar una lista de duraciones (con o sin silencios) que suma exacto al compás.
+function generateBarDurations(
+  timeSig: TimeSig,
+  allowedDurations: Array<keyof typeof DURATION_MAP>,
+  allowRests: boolean,
+  allowSyncopation: boolean,
+  allowTuplets: boolean
+): string[] {
+  const target = barLen(timeSig);
+  const out: string[] = [];
+  let sum = 0;
+  let guard = 0;
+
+  // Creamos una copia ordenada de mayor a menor para favorecer figuras más largas al inicio
+  const sorted = [...allowedDurations].sort(
+    (a, b) => DURATION_MAP[b] - DURATION_MAP[a]
+  );
+
+  while (Math.abs(sum - target) > 1e-8 && guard < 5000) {
+    guard++;
+    const remaining = target - sum;
+
+    // Filtramos figuras que no pasen del restante (considerando tuplets como 3:2 de la figura base si se usa)
+    const candidates = sorted.filter((d) => DURATION_MAP[d] <= remaining + 1e-8);
+    if (candidates.length === 0) break;
+
+    let dur = randChoice(candidates);
+
+    // Aleatoriamente convertir en silencio
+    const isRest = allowRests && Math.random() < 0.2; // 20% prob.
+
+    // Aleatoriamente crear un tresillo (solo si cabe espacio suficiente, y evitamos en compases con denominador 8/16 constantes)
+    const makeTriplet = allowTuplets && Math.random() < 0.18;
+
+    if (makeTriplet) {
+      // Tresillo de la figura elegida: 3 notas que ocupan el tiempo de 2
+      // En EasyScore, lo resolveremos luego anotando tuplet en el render; aquí devolvemos 3 entradas
+      const base = DURATION_MAP[dur];
+      const tripletUnit = (2 * base) / 3; // cada una vale 2/3 de la figura base
+      if (sum + 3 * tripletUnit <= target + 1e-8) {
+        const vfDur = dur; // usaremos la misma etiqueta (VexFlow ajustará con tuplet)
+        out.push(isRest ? `${vfDur}r*3t` : `${vfDur}*3t`);
+        sum += 3 * tripletUnit;
+        continue;
+      }
+    }
+
+    // Syncopation: si está permitido, a veces evitamos alinear con el pulso agregando corcheas/semis
+    if (allowSyncopation && Math.random() < 0.25) {
+      // dividir una figura mayor en dos o más pequeñas si cabe
+      if (dur === "h" && remaining >= DURATION_MAP["h"]) {
+        // dividir en q + q
+        out.push(isRest ? "qr" : "q");
+        out.push(isRest ? "qr" : "q");
+        sum += DURATION_MAP["q"] * 2;
+        continue;
+      } else if (dur === "q" && remaining >= DURATION_MAP["q"]) {
+        // dividir en 8 + 8
+        out.push(isRest ? "8r" : "8");
+        out.push(isRest ? "8r" : "8");
+        sum += DURATION_MAP["8"] * 2;
+        continue;
+      }
+    }
+
+    out.push(isRest ? `${dur}r` : dur);
+    sum += DURATION_MAP[dur];
+  }
+
+  // Si fallamos, reintentar recursivamente con parámetros iguales
+  if (Math.abs(sum - target) > 1e-6) {
+    return generateBarDurations(
+      timeSig,
+      allowedDurations,
+      allowRests,
+      allowSyncopation,
+      allowTuplets
+    );
+  }
+
+  // Expandir marcas de tuplet ("*3t") a 3 notas separadas para facilitar el render
+  const expanded: string[] = [];
+  out.forEach((token) => {
+    if (token.includes("*3t")) {
+      const isRest = token.includes("r");
+      const base = token.replace("r", "").replace("*3t", "");
+      for (let i = 0; i < 3; i++) expanded.push(isRest ? `${base}r(t)` : `${base}(t)`);
+    } else {
+      expanded.push(token);
+    }
+  });
+
+  return expanded;
+}
+
+function generateScore(settings: Settings): string[][] {
+  const bars: string[][] = [];
+  for (let m = 0; m < settings.measures; m++) {
+    bars.push(
+      generateBarDurations(
+        settings.timeSig,
+        settings.allowedDurations,
+        settings.allowRests,
+        settings.allowSyncopation,
+        settings.allowTuplets
+      )
+    );
+  }
+  return bars;
+}
+
+// Crear sílabas de conteo arriba de cada nota (basado en 16avos)
+function makeCountSyllables(timeSig: TimeSig, bars: string[][]): string[][] {
+  const syllablesPerBeat = 4; // 1 e & a
+  const beatUnit = 1 / timeSig.den; // fracción de redonda por pulso
+  const beatIn16 = Math.round(beatUnit / SUBDIV_FRAC); // cuántos 16avos por pulso
+  const seq: string[][] = [];
+
+  const labels = ["1", "e", "&", "a"];
+
+  for (const bar of bars) {
+    const row: string[] = [];
+    let pos = 0; // en 16avos del compás
+    const bar16 = Math.round(barLen(timeSig) / SUBDIV_FRAC);
+
+    // Para cada token, calcular cuántos 16avos ocupa
+    bar.forEach((tok) => {
+      const clean = tok.replace("r", "").replace("(t)", "");
+      const frac = DURATION_MAP[clean as keyof typeof DURATION_MAP] || 0;
+      const isTriplet = tok.includes("(t)");
+
+      let units = Math.round(frac / SUBDIV_FRAC);
+      if (isTriplet) {
+        // 3 en el espacio de 2 => cada una vale 2/3 de la figura base
+        // Aproximamos a 16avos según dur base
+        units = Math.max(1, Math.round((frac * 2 / 3) / SUBDIV_FRAC));
+      }
+
+      // Asignar sílaba del pulso actual
+      const beatIndex = Math.floor((pos % (beatIn16 * timeSig.num)) / beatIn16);
+      const withinBeat = pos % beatIn16;
+      const syl = labels[withinBeat] || "";
+      row.push(syl);
+
+      pos += units;
+    });
+
+    // Relleno por si algo no cuadra exacto
+    while (row.length < bar.length) row.push("");
+    seq.push(row);
+  }
+  return seq;
+}
+
+// --- Audio (Tone.js) ---
+const clickHi = new Tone.MembraneSynth({ octaves: 6 }).toDestination();
+const clickLo = new Tone.MembraneSynth({ octaves: 4 }).toDestination();
+const wood = new Tone.MetalSynth({ resonance: 400, harmonicity: 5 }).toDestination();
+
+function schedulePlayback(
+  settings: Settings,
+  bars: string[][],
+  onNote?: (barIndex: number, noteIndex: number) => void
+) {
+  Tone.Transport.cancel(0);
+  Tone.Transport.bpm.value = settings.tempo;
+
+  // Convención: BPM refiere a la negra. Un cuarto dura 1 beat de Tone.
+  // Mapeamos cada figura a múltiplos de negra.
+  function durToBeats(token: string): number {
+    const base = token.replace("r", "").replace("(t)", "");
+    const frac = DURATION_MAP[base as keyof typeof DURATION_MAP];
+    // 1 negra = 1/4 redonda
+    const quarter = DURATION_MAP["q"]; // 0.25 redonda
+    let beats = frac / quarter; // p.ej. corchea 0.125/0.25 = 0.5 beats
+    if (token.includes("(t)")) {
+      // triplet note: 2/3 de su valor
+      beats *= 2 / 3;
+    }
+    return beats;
+  }
+
+  let t = 0;
+  bars.forEach((bar, bi) => {
+    bar.forEach((tok, ni) => {
+      const isRest = tok.includes("r");
+      const beats = durToBeats(tok);
+
+      // Clic de pulso (cada negra), solo en inicio de negras dentro del compás
+      // Para simplificar, añadimos un clic cada negra exacta usando subdivisiones a partir de t
+      // (no perfecto con síncopas, pero útil para práctica)
+
+      if (!isRest) {
+        Tone.Transport.schedule((time) => {
+          wood.triggerAttackRelease("C6", 0.05, time);
+          onNote && onNote(bi, ni);
+        }, t);
+      }
+
+      // Marca de tiempo para siguiente evento
+      t += beats;
+    });
+  });
+}
+
+// --- Componente principal ---
+export default function App() {
+  const [settings, setSettings] = useState<Settings>({
+    timeSig: { num: 4, den: 4 },
+    measures: 2,
+    allowRests: true,
+    allowSyncopation: true,
+    allowTuplets: true,
+    allowedDurations: ["q", "8", "16"],
+    tempo: 90,
+    mode: "Desafío",
+  });
+
+  const [bars, setBars] = useState<string[][]>(() => generateScore(settings));
+  const [showSolution, setShowSolution] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [activePos, setActivePos] = useState<{ m: number; i: number } | null>(
+    null
+  );
+
+  const vexRef = useRef<HTMLDivElement | null>(null);
+  const factoryRef = useRef<Factory | null>(null);
+
+  // Regenerar cuando cambian settings relevantes
+  useEffect(() => {
+    const next = generateScore(settings);
+    setBars(next);
+    setShowSolution(settings.mode === "Lectura");
+    setActivePos(null);
+  }, [
+    settings.timeSig.num,
+    settings.timeSig.den,
+    settings.measures,
+    settings.allowRests,
+    settings.allowSyncopation,
+    settings.allowTuplets,
+    settings.allowedDurations.join("-"),
+  ]);
+
+  // Render de VexFlow
+  useEffect(() => {
+    if (!vexRef.current) return;
+
+    // Limpiar
+    vexRef.current.innerHTML = "";
+
+    const factory = new Factory({ renderer: { elementId: undefined, width: 900, height: 200 + (settings.measures > 2 ? 80 : 0) } });
+    const renderer = factory.Renderer;
+    const context = factory.getContext();
+
+    // Adjuntar al div
+    const el = vexRef.current;
+    const canvas = renderer.getContext().canvas as HTMLCanvasElement;
+    el.appendChild(canvas);
+
+    const ez: EasyScore = factory.EasyScore();
+
+    const sys = new System({
+      factory,
+      x: 10,
+      y: 20,
+      width: 860,
+      spaceBetweenStaves: 12,
+    });
+
+    const ts = `${settings.timeSig.num}/${settings.timeSig.den}`;
+
+    // Construir voz por compases
+    const notesPerMeasure: string[][] = bars.map((bar) => {
+      // Convertir tokens a notación de altura neutra (B/4)
+      // Conservamos silencios con sufijo "r" y marcamos triplet con nota (t)
+      return bar.map((tok) => {
+        const base = tok.replace("(t)", "");
+        const isRest = base.includes("r");
+        const dur = base.replace("r", "");
+        const pitch = isRest ? "b4" : "b4"; // una sola línea
+        const suffix = tok.includes("(t)") ? "" : ""; // tuplet se manejará por voz
+        return `${pitch}/${dur}${isRest ? "r" : ""}${suffix}`;
+      });
+    });
+
+    // Para cada compás, creamos una voz y añadimos al sistema
+    const voices: Voice[] = [];
+    notesPerMeasure.forEach((nlist, idx) => {
+      const measureStave = sys.addStave({
+        voices: [ez.voice(ez.notes(nlist.join(", "), { time: ts }))],
+      });
+      if (idx === 0) measureStave.addClef("percussion").addTimeSignature(ts);
+      // Guardar voz
+      voices.push(measureStave.getVoices()[0]);
+    });
+
+    // Detectar tuplets: si el token original llevaba "(t)", creamos un tuplet cada 3 notas consecutivas de misma figura
+    bars.forEach((bar, bi) => {
+      let i = 0;
+      while (i < bar.length) {
+        if (bar[i].includes("(t)")) {
+          // contar 3
+          const j = Math.min(i + 3, bar.length);
+          const notes = voices[bi].getTickables().slice(i, j);
+          factory.Tuplet({ notes, options: { num_notes: 3, ratioed: true } });
+          i = j;
+        } else {
+          i++;
+        }
+      }
+    });
+
+    // Dibujar
+    factory.Formatter().joinVoices(voices).format(voices, 800);
+    sys.format();
+    factory.draw();
+
+    // Añadir resaltado de nota activa (simple overlay)
+    if (activePos) {
+      const { m, i } = activePos;
+      const tickable = voices[m]?.getTickables?.()[i];
+      if (tickable && "getAbsoluteX" in tickable) {
+        const x = (tickable as any).getAbsoluteX();
+        context.save();
+        context.setFillStyle("rgba(0,0,0,0.06)");
+        context.fillRect(x - 8, 20, 28, 80);
+        context.restore();
+      }
+    }
+
+    factoryRef.current = factory;
+
+    return () => {
+      try { factory?.release(); } catch {}
+    };
+  }, [bars, settings.timeSig, activePos, showSolution]);
+
+  const counts = useMemo(() => makeCountSyllables(settings.timeSig, bars), [bars, settings.timeSig]);
+
+  // Controladores
+  const handlePlay = async () => {
+    await Tone.start();
+    const onNote = (m: number, i: number) => setActivePos({ m, i });
+    schedulePlayback(settings, bars, onNote);
+    setIsPlaying(true);
+    Tone.Transport.start();
+  };
+
+  const handleStop = () => {
+    Tone.Transport.stop();
+    Tone.Transport.cancel(0);
+    setIsPlaying(false);
+    setActivePos(null);
+  };
+
+  const regenerate = () => {
+    const next = generateScore(settings);
+    setBars(next);
+    setActivePos(null);
+    if (settings.mode === "Dictado") setShowSolution(false);
+  };
+
+  const toggleMode = (mode: Settings["mode"]) => {
+    setSettings((s) => ({ ...s, mode }));
+    if (mode === "Lectura") setShowSolution(true);
+    if (mode === "Dictado") setShowSolution(false);
+  };
+
+  const toggleDuration = (d: keyof typeof DURATION_MAP) => {
+    setSettings((s) => {
+      const has = s.allowedDurations.includes(d);
+      const next = has
+        ? s.allowedDurations.filter((x) => x !== d)
+        : [...s.allowedDurations, d];
+      return { ...s, allowedDurations: next };
+    });
+  };
+
+  // UI
+  return (
+    <div className="min-h-screen w-full bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
+      <div className="max-w-5xl mx-auto p-6">
+        <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Rhythm Trainer</h1>
+          <div className="inline-flex rounded-2xl overflow-hidden shadow">
+            {(["Lectura", "Dictado", "Desafío"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => toggleMode(m)}
+                className={`px-4 py-2 text-sm font-medium border border-slate-200 ${
+                  settings.mode === m ? "bg-slate-900 text-white" : "bg-white hover:bg-slate-50"
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </header>
+
+        <section className="grid md:grid-cols-3 gap-6">
+          {/* Panel izquierdo: Controles */}
+          <div className="md:col-span-1 bg-white rounded-2xl shadow p-4 space-y-4">
+            <div>
+              <label className="block text-sm font-semibold">Compás</label>
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="number"
+                  min={1}
+                  max={12}
+                  value={settings.timeSig.num}
+                  onChange={(e) =>
+                    setSettings({ ...settings, timeSig: { ...settings.timeSig, num: Number(e.target.value) as any } })
+                  }
+                  className="w-20 px-2 py-1 border rounded-lg"
+                />
+                <span className="opacity-60">/</span>
+                <select
+                  value={settings.timeSig.den}
+                  onChange={(e) =>
+                    setSettings({ ...settings, timeSig: { ...settings.timeSig, den: Number(e.target.value) as any } })
+                  }
+                  className="w-24 px-2 py-1 border rounded-lg"
+                >
+                  {[1, 2, 4, 8, 16].map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-semibold">Compases</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={8}
+                  value={settings.measures}
+                  onChange={(e) => setSettings({ ...settings, measures: Number(e.target.value) })}
+                  className="w-full px-2 py-1 border rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold">Tempo (BPM)</label>
+                <input
+                  type="number"
+                  min={40}
+                  max={200}
+                  value={settings.tempo}
+                  onChange={(e) => setSettings({ ...settings, tempo: Number(e.target.value) })}
+                  className="w-full px-2 py-1 border rounded-lg"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold">Figuras permitidas</label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {["w", "h", "q", "8", "16"].map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => toggleDuration(d as any)}
+                    className={`px-3 py-1 rounded-full border ${
+                      settings.allowedDurations.includes(d as any)
+                        ? "bg-slate-900 text-white"
+                        : "bg-white hover:bg-slate-50"
+                    }`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.allowRests}
+                  onChange={(e) => setSettings({ ...settings, allowRests: e.target.checked })}
+                />
+                Silencios
+              </label>
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.allowSyncopation}
+                  onChange={(e) => setSettings({ ...settings, allowSyncopation: e.target.checked })}
+                />
+                Síncopas
+              </label>
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.allowTuplets}
+                  onChange={(e) => setSettings({ ...settings, allowTuplets: e.target.checked })}
+                />
+                Tresillos
+              </label>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={regenerate}
+                className="px-4 py-2 rounded-xl bg-slate-900 text-white shadow hover:opacity-90"
+              >
+                Generar nuevo
+              </button>
+              {!isPlaying ? (
+                <button
+                  onClick={handlePlay}
+                  className="px-4 py-2 rounded-xl bg-green-600 text-white shadow hover:opacity-90"
+                >
+                  ▶ Reproducir
+                </button>
+              ) : (
+                <button
+                  onClick={handleStop}
+                  className="px-4 py-2 rounded-xl bg-red-600 text-white shadow hover:opacity-90"
+                >
+                  ■ Detener
+                </button>
+              )}
+              <button
+                onClick={() => setShowSolution((s) => !s)}
+                className="px-4 py-2 rounded-xl bg-white border shadow hover:bg-slate-50"
+              >
+                {showSolution ? "Ocultar solución" : "Mostrar solución"}
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-snug">
+              Modos:
+              <br />
+              <b>Lectura</b>: se ve la partitura y se reproduce.
+              <br />
+              <b>Dictado</b>: se reproduce sin mostrar la partitura; usar "Mostrar solución" al final.
+              <br />
+              <b>Desafío</b>: genera ritmos variados con silencios/síncopas/tresillos.
+            </p>
+          </div>
+
+          {/* Panel derecho: Partitura y conteo */}
+          <div className="md:col-span-2 bg-white rounded-2xl shadow p-4">
+            {settings.mode === "Dictado" && !showSolution ? (
+              <div className="h-[220px] flex items-center justify-center text-slate-500">
+                <div className="text-center">
+                  <div className="text-lg font-semibold">Modo Dictado</div>
+                  <div className="text-sm">Escucha y anota. Pulsa "Mostrar solución" para ver la partitura.</div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div ref={vexRef} className="w-full overflow-x-auto select-none" />
+                <div className="mt-2">
+                  <label className="text-sm font-semibold">Conteo (1 e & a)</label>
+                  <div className="mt-1 grid gap-1">
+                    {counts.map((row, i) => (
+                      <div key={i} className="text-xs font-mono text-slate-600 flex gap-2 flex-wrap">
+                        {row.map((syl, j) => (
+                          <span
+                            key={j}
+                            className={`px-1 rounded ${
+                              activePos && activePos.m === i && activePos.i === j
+                                ? "bg-yellow-200"
+                                : ""
+                            }`}
+                          >
+                            {syl || "·"}
+                          </span>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </section>
+
+        <footer className="mt-6 text-xs text-slate-500">
+          Hecho para estudiantes de música. Inspirado en rhythmrandomizer.com, con mejoras para dictado, conteo y resaltado en reproducción.
+        </footer>
+      </div>
+    </div>
+  );
+}
